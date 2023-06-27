@@ -1,0 +1,74 @@
+---
+name: release
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs: 
+  build_release:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+          
+      - name: Install Python Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y python3-pip
+
+      - name:  zip python package for release
+        run: |
+          mkdir erhchecker
+          cp src/* erhchecker/
+          python3 -m pip install -r requirements.txt --target erhchecker --upgrade
+          python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz erhchecker 
+
+      - name: Upload pyz file to create_release
+        uses: actions/upload-artifact@v3
+        with:
+          name: tproxy_splicer_${{matrix.goos}}_${{matrix.goarch}}
+          path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
+          retention-days: 1
+          
+      - name: Get version
+        id: version
+        run: |
+          echo "release_tag=`erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz -v`" >> $GITHUB_OUTPUT
+          
+  create_release:
+    runs-on: ubuntu-22.04
+    needs: build_release 
+    steps:
+      - name: Download pyz file from build_release
+        uses: actions/download-artifact@v3
+
+      - name: Create release
+        uses: actions/create-release@v1
+        id: release
+        with:
+          draft: false
+          prerelease: false
+          release_name: v${{ needs.build_release.outputs.release_tag }}
+          tag_name: v${{ needs.build_release.outputs.release_tag }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload a small artifact for release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
+          asset_name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
+          asset_content_type: application/pyz
+
