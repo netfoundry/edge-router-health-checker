@@ -24,7 +24,7 @@ jobs:
         run: |
           mkdir erhchecker
           cp src/* erhchecker/
-          python3 -m pip install -r requirements.txt --target erhchecker --upgrade
+          python3 -m pip install -r files/requirements.txt --target erhchecker --upgrade
           python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz erhchecker 
           
       - name: Upload a built artifact for testing
