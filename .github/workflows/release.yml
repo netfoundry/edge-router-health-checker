@@ -31,6 +31,7 @@ jobs:
           cp src/* erhchecker/
           python3 -m pip install -r files/requirements.txt --target erhchecker --upgrade
           python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz erhchecker 
+          chmod 764 erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
 
       - name: Upload pyz file to create_release
         uses: actions/upload-artifact@v3
@@ -70,5 +71,5 @@ jobs:
           upload_url: ${{ steps.release.outputs.upload_url }}
           asset_path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
           asset_name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
-          asset_content_type: application/pyz
+          asset_content_type: application/zip
 
