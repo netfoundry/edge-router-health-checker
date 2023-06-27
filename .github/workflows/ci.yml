@@ -33,3 +33,31 @@ jobs:
         with:
           name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker.pyz
+
+  create_release:
+    runs-on: ubuntu-22.04
+    needs: build_release 
+    steps:
+      - name: Download pyz file from build_release
+        uses: actions/download-artifact@v3
+
+      - name: Create release
+        uses: actions/create-release@v1
+        id: release
+        with:
+          draft: false
+          prerelease: false
+          release_name: v${{ needs.build_release.outputs.release_tag }}
+          tag_name: v${{ needs.build_release.outputs.release_tag }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload pyz artifact for release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: erhchecker.pyz
+          asset_name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
+          asset_content_type: application/zip
