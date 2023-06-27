@@ -30,20 +30,19 @@ jobs:
           mkdir erhchecker
           cp src/* erhchecker/
           python3 -m pip install -r files/requirements.txt --target erhchecker --upgrade
-          python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz erhchecker 
-          chmod 764 erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
+          python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker.pyz erhchecker 
 
       - name: Upload pyz file to create_release
         uses: actions/upload-artifact@v3
         with:
           name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
-          path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
+          path: erhchecker.pyz
           retention-days: 1
           
       - name: Get version
         id: version
         run: |
-          echo "release_tag=`erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz -v`" >> $GITHUB_OUTPUT
+          echo "release_tag=`erhchecker.pyz -v`" >> $GITHUB_OUTPUT
           
   create_release:
     runs-on: ubuntu-22.04
@@ -69,7 +68,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
+          asset_path: erhchecker.pyz
           asset_name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           asset_content_type: application/zip
 
