@@ -35,7 +35,7 @@ jobs:
       - name: Upload pyz file to create_release
         uses: actions/upload-artifact@v3
         with:
-          name: tproxy_splicer_${{matrix.goos}}_${{matrix.goarch}}
+          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
           retention-days: 1
           

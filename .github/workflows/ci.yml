@@ -31,5 +31,5 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/main') == false
         uses: actions/upload-artifact@v3.1.0
         with:
-          name: tproxy_splicer_${{matrix.goos}}_${{matrix.goarch}}
+          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.pyz
