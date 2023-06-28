@@ -120,7 +120,7 @@ def parse_yaml_file(file):
             return yaml.safe_load(newFile)
     except Exception as err:
         logging.error(err)
-        return 0
+        return None
 
 def list_comprehension_return_dict_if(keysValues, key):
     return {k:v for (k,v) in keysValues if k==key}
@@ -166,15 +166,6 @@ def case_3(**kwargs):
         return 1
     return 0
 
-# Create a switch table mapping conditions to corresponding functions
-switch_table = {
-    (True, True): case_0,
-    (False, False): case_1,
-    (True, False): case_2,
-    (False, True): case_3
-    
-}
-
 def main():
     """
     Main Function
@@ -192,17 +183,12 @@ def main():
 
     ### Set up initial variables' states/values
     setup_logging(logFile, logLevel)
-    config = parse_yaml_file(routerConfigFilePath)
-    if noTFlagRoutersFilePath:
-        try:
-            nonTraversableRouters = parse_yaml_file(noTFlagRoutersFilePath)["routerIds"]
-        except Exception as err:
-            logging.error(err)
-            if logLevel == "DEBUG":
-                traceback.print_exception(*sys.exc_info())
-            nonTraversableRouters = []
-        if not nonTraversableRouters:
-            nonTraversableRouters = []
+    if config := parse_yaml_file(routerConfigFilePath):
+        pass
+    else:
+        return 0
+    if nonTraversableRouters := parse_yaml_file(noTFlagRoutersFilePath):
+        nonTraversableRouters = nonTraversableRouters.get("routerIds")
     else:
         nonTraversableRouters = []
     logging.debug("Routers list is %s", nonTraversableRouters)
@@ -256,8 +242,15 @@ def main():
 
     # Evaluate the various conditions and execute the corresponding function
     condition = (controlPingData["healthy"], newLinkHealthy)
+    # Create a switch table mapping conditions to corresponding functions
+    switch_table = {
+        (True, True): case_0,
+        (False, False): case_1,
+        (True, False): case_2,
+        (False, True): case_3
+    }
     # Default to case 0
     result = switch_table.get(condition, lambda: 0)(controlPingData=controlPingData, 
-                                                      linkHealthData=linkHealthData, 
-                                                      switchTimeout=switchTimeout)  
+                                                    linkHealthData=linkHealthData, 
+                                                    switchTimeout=switchTimeout)  
     return result
