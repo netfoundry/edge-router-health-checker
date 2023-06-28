@@ -1,5 +1,8 @@
 #!/usr/bin/python3
-import hcapp
+"""
+NetFoundry Edge Router Health Check
+"""
 import sys
+import hcapp
 
 sys.exit(hcapp.main())

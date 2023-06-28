@@ -4,21 +4,20 @@ NetFoundry Edge Router Health Check
 import argparse
 import logging
 import os
-import yaml
 import sys
 import traceback
-import requests
 import ipaddress
 import socket
-from colorama import Fore, Style, init
 from datetime import datetime
-requests.packages.urllib3.disable_warnings() 
-
+import requests
+import urllib3
+import yaml
+from colorama import Fore, Style, init
+urllib3.disable_warnings(category = urllib3.exceptions.InsecureRequestWarning)
 
 # Requests Options
 TIMEOUT = 60
 HEADERS = {"content-type": "application/json"}
-
 
 def get_arguments():
     """
@@ -32,7 +31,8 @@ def get_arguments():
     parser.add_argument('-t', '--switchTimeout', type=int,
                         help='Time to pass to allow for sessions drainage')
     parser.add_argument('-r', '--noTFlagRoutersFilePath', type=str,
-                        help='Specify yaml file containing list of router ids that have no-traversable flag set')
+                        help='Specify yaml file containing list of \
+                        router ids that have no-traversable flag set')
     parser.add_argument('-l', '--logLevel', type=str,
                         choices=['INFO', 'ERROR', 'WARNING', 'DEBUG', 'CRITICAL'],
                         help='Set the logging level')
@@ -108,43 +108,35 @@ def setup_logging(logfile, loglevel):
         logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
-
 def parse_variables(cmdVar, envVar, defaultVar):
     if cmdVar is not None:
         return cmdVar
-    else:
-        return os.environ.get(envVar,defaultVar)
-
+    return os.environ.get(envVar,defaultVar)
 
 def parse_yaml_file(file):
     logging.debug("Parsing Yaml File: %s", file)
-    try: 
-        with open(file, 'r') as f:
-            return yaml.safe_load(f)
-    except Exception as e:
-        logging.error(e)
+    try:
+        with open(file, mode='r', encoding='utf-8') as newFile:
+            return yaml.safe_load(newFile)
+    except Exception as err:
+        logging.error(err)
         return 0
 
+def list_comprehension_return_dict_if(keysValues,key):
+    return {k:v for (k,v) in keysValues if k==key}
 
-def list_comprehension_return_dict_if(dict,key):
-    return {k:v for (k,v) in dict if k==key}
+def list_comprehension_return_list_if(valueList,key,value):
+    return [v for v in valueList if v[key]==value]
 
-
-def list_comprehension_return_list_if(list,key,value):
-    return [v for v in list if v[key]==value]
-
-
-def nested_list_comprehension_return_list_if(list,key,value,inner_key):
-    return [[v2 for v2 in v[inner_key]] for v in list if v[key]==value]
-
+def nested_list_comprehension_return_list_if(valueList,key,value,inner_key):
+    return [[v2 for v2 in v[inner_key]] for v in valueList if v[key]==value]
 
 def is_ipv4(string):
-        try:
-            ipaddress.IPv4Network(string)
-            return True
-        except ValueError:
-            return False
-
+    try:
+        ipaddress.IPv4Network(string)
+        return True
+    except ValueError:
+        return False
 
 def main():
     """
@@ -153,20 +145,22 @@ def main():
 
     ### Get command line arguments or environment variables
     args = get_arguments()
-    routerConfigFilePath = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH', '/opt/netfoundry/ziti/ziti-router/config.yml')
+    routerConfigFilePath = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',\
+                                           '/opt/netfoundry/ziti/ziti-router/config.yml')
     switchTimeout = int(parse_variables(args.switchTimeout, 'SWITCH_TIMEOUT', 600))
-    noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath, 'NO_T_FLAG_ROUTERS_FILE_PATH', "")
+    noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath, 
+                                             'NO_T_FLAG_ROUTERS_FILE_PATH', "")
     logFile = parse_variables(args.logFile, 'LOG_FILE', "")
     logLevel = parse_variables(args.logLevel, 'LOG_LEVEL', "INFO")
-    
-    ###
+
+    ### Set up initial variables' states/values
     setup_logging(logFile, logLevel)
     config = parse_yaml_file(routerConfigFilePath)
     if noTFlagRoutersFilePath:
         try:
             nonTraversableRouters = parse_yaml_file(noTFlagRoutersFilePath)["routerIds"]
-        except Exception as e:
-            logging.error(e)
+        except Exception as err:
+            logging.error(err)
             if logLevel == "DEBUG":
                 traceback.print_exception(*sys.exc_info())
             nonTraversableRouters = [] 
@@ -176,30 +170,34 @@ def main():
         nonTraversableRouters = []
     logging.debug("Routers list is %s", nonTraversableRouters)
     try:
-        [[hcPort]] = nested_list_comprehension_return_list_if(list_comprehension_return_dict_if(config.items(),"web")["web"],"name","health-check","bindPoints")
-        [[hcPath]] = nested_list_comprehension_return_list_if(list_comprehension_return_dict_if(config.items(),"web")["web"],"name","health-check","apis")
-        ctrlAddr = (config["ctrl"]["endpoint"].split(":")[1])
+        [[hcPort]] = nested_list_comprehension_return_list_if(
+                            list_comprehension_return_dict_if(config.items(),"web")["web"],
+                            "name","health-check",
+                            "bindPoints")
+        [[hcPath]] = nested_list_comprehension_return_list_if(
+                            list_comprehension_return_dict_if(config.items(),"web")["web"],
+                            "name","health-check","apis")
+        ctrlAddr = config["ctrl"]["endpoint"].split(":")[1]
         if is_ipv4(ctrlAddr):
             ctrlIp = [ctrlAddr]
         else:
             ctrlIp = [socket.gethostbyname(ctrlAddr)]
         logging.debug("ctrl address is %s", ctrlIp)
-    except Exception as e:
-        logging.error(e)
+    except Exception as err:
+        logging.error(err)
         if logLevel == "DEBUG":
             traceback.print_exception(*sys.exc_info())
-        return 1    
-    url = 'https://127.0.0.1:{}/{}'.format(hcPort["address"].split(":")[1],
-                                           hcPath["binding"])
-    
+        return 1
+    url = f'https://127.0.0.1:{hcPort["address"].split(":")[1]}/{hcPath["binding"]}'
+
     # Get Healthcheck data
     try:
         response = requests.get(url, timeout=TIMEOUT, headers=HEADERS, verify=False)
-    except Exception as e:
-        logging.error(e)
+    except Exception as err:
+        logging.error(err)
         if logLevel == "DEBUG":
             traceback.print_exception(*sys.exc_info())
-        return 1  
+        return 1
     hcData = response.json()["data"]
     [controlPingData] = list_comprehension_return_list_if(hcData["checks"],"id","controllerPing")
     [linkHealthData] = list_comprehension_return_list_if(hcData["checks"],"id","link.health")
@@ -210,7 +208,9 @@ def main():
 
     # Evaluate all active links and remove links with no-traversal flag
     if linkHealthData.get("details"):
-        newLinkDetails=[d for d in linkHealthData["details"] if d["destRouterId"] not in nonTraversableRouters if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp]
+        newLinkDetails=[d for d in linkHealthData["details"] if d["destRouterId"]
+                        not in nonTraversableRouters
+                        if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp]
         logging.debug("New link data after filtering %s", newLinkDetails)
         newLinkHealthy=True
         if len(newLinkDetails) == 0:
@@ -219,31 +219,31 @@ def main():
     else:
         newLinkDetails = []
         newLinkHealthy=False
+
     # Decision making logic
     if hcData["healthy"] == True and newLinkDetails:
         logging.debug("Healthchecks are healthy and more links than one are active")
         return 0
-    else:
-        # If both are false, then switch
-        if controlPingData["healthy"] == False and newLinkHealthy == False:
-            logging.debug("Number of consecutive controller check failures is %d", controlPingData["consecutiveFailures"])
-            logging.info("Failure start time is %s",  controlPingData["failingSince"].split("+")[0])
-            logging.debug("Current time is %s", controlPingData["lastCheckTime"])
+    # If both are false, then switch
+    if controlPingData["healthy"] == False and newLinkHealthy == False:
+        logging.debug("Number of consecutive controller check failures is %d",
+                        controlPingData["consecutiveFailures"])
+        logging.info("Failure start time is %s",  controlPingData["failingSince"].split("+")[0])
+        logging.debug("Current time is %s", controlPingData["lastCheckTime"])
+        return 1
+    # If any of them is true, then analyze bit furthur
+    if controlPingData["healthy"] == True and newLinkHealthy == False:
+        logging.debug("All links are down, details are %s.", linkHealthData["details"])
+        return 1
+    if controlPingData["healthy"] == False and newLinkHealthy == True:
+        # Switch after delay timeout reached to allow long live sessions
+        # to drain if only control channel is failed
+        delaySwitch = (datetime.strptime(controlPingData["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ')
+                                            - datetime.strptime(controlPingData["failingSince"],
+                                            '%Y-%m-%dT%H:%M:%SZ')).total_seconds()
+        logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
+        if delaySwitch > switchTimeout:
+            logging.debug("Switch due to timeout of %ds has been triggered", switchTimeout )
             return 1
-        # If any of them is true, then analyze bit furthur
-        else:   
-            if controlPingData["healthy"] == True and newLinkHealthy == False:  
-                logging.debug("All links are down, details are %s.", linkHealthData["details"])
-                return 1
-            elif controlPingData["healthy"] == False and newLinkHealthy == True:
-                # Switch after delay timeout reached to allow long live sessions to drain if only control channel is failed
-                delaySwitch = (datetime.strptime(controlPingData["lastCheckTime"] , '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(controlPingData["failingSince"] , '%Y-%m-%dT%H:%M:%SZ')).total_seconds()
-                logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
-                if delaySwitch > switchTimeout:
-                    logging.debug("Switch due to timeout of %ds has been triggered", switchTimeout )
-                    return 1
-                else:
-                    return 0
-            else:
-                return 0
-   
+        return 0
+    return 0
