@@ -41,7 +41,7 @@ jobs:
       - name: Get version
         id: version
         run: |
-          echo "release_tag=./erhchecker.pyz -v`" >> $GITHUB_OUTPUT
+          echo "release_tag=`./erhchecker.pyz -v`" >> $GITHUB_OUTPUT
 
   create_release:
     runs-on: ubuntu-22.04
@@ -50,7 +50,7 @@ jobs:
       matrix:
         goos: [linux]
         goarch: [amd64]
-        
+
     steps:
       - name: Download pyz file from build_release
         uses: actions/download-artifact@v3
