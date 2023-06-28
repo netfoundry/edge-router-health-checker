@@ -32,31 +32,5 @@ jobs:
         if: startsWith(github.ref, 'refs/heads/main') == false
         uses: actions/upload-artifact@v3
         with:
-          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
+          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
-
-      - name: Get version
-        id: version
-        run: |
-          echo "version=$(./erhchecker.pyz -v)" >> $GITHUB_ENV
-
-      - name: Create release
-        uses: actions/create-release@v1
-        id: release
-        with:
-          draft: false
-          prerelease: false
-          release_name: v${{ env.version }}
-          tag_name: v${{ env.version }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Upload Artifact for release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        with:
-          upload_url: ${{ steps.release.outputs.upload_url }}
-          asset_path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
-          asset_name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
-          asset_content_type: application/gzip
