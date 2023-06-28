@@ -48,6 +48,11 @@ jobs:
   create_release:
     runs-on: ubuntu-22.04
     needs: build_release 
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
+        
     steps:
       - name: Download pyz file from build_release
         uses: actions/download-artifact@v3
