@@ -14,10 +14,10 @@ jobs:
         goarch: [amd64]
 
     steps:
-      - name: Check out code
+      - name: check out code
         uses: actions/checkout@v3
           
-      - name: Install Python Packages
+      - name: install updates and python packages
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
@@ -31,7 +31,7 @@ jobs:
           python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker.pyz erhchecker 
           tar -cvzf erhchecker_${{matrix.goos}}_${{matrix.goarch}}.gz erhchecker.pyz
 
-      - name: Get version
+      - name: get version
         id: version
         run: |
           echo "version=$(./erhchecker.pyz -v)" >> $GITHUB_ENV
@@ -47,7 +47,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Upload Artifact for release
+      - name: upload artifact for release
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}

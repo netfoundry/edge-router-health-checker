@@ -11,10 +11,10 @@ jobs:
         goos: [linux]
         goarch: [amd64]
     steps:
-      - name: Check out code
+      - name: check out code
         uses: actions/checkout@v3
           
-      - name: Install Python Packages
+      - name: install updates and python packages
         run: |
           sudo apt-get update -qq
           sudo apt-get upgrade -yqq
@@ -28,9 +28,10 @@ jobs:
           python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker.pyz erhchecker
           tar -cvzf erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz erhchecker.pyz
           
-      - name: Upload a built artifact for testing
+      - name: upload a built artifact for testing
         if: startsWith(github.ref, 'refs/heads/main') == false
         uses: actions/upload-artifact@v3
         with:
-          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
+          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
+          retention-days: 5
