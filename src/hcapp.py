@@ -31,8 +31,7 @@ def get_arguments():
     parser.add_argument('-t', '--switchTimeout', type=int,
                         help='Time to pass to allow for sessions drainage')
     parser.add_argument('-r', '--noTFlagRoutersFilePath', type=str,
-                        help='Specify yaml file containing list of \
-                        router ids that have no-traversable flag set')
+                        help='Specify yaml file containing list of router ids that have no-traversable flag set')
     parser.add_argument('-l', '--logLevel', type=str,
                         choices=['INFO', 'ERROR', 'WARNING', 'DEBUG', 'CRITICAL'],
                         help='Set the logging level')
@@ -47,8 +46,9 @@ def get_arguments():
 def setup_logging(logfile, loglevel):
     """
     Set up logging to log messages to both the console and a file.
-    :param logfile: The file to log messages to. Defaults to 'program_name.log'.
-    :param loglevel: The minimum level of log messages to display. Defaults to logging.INFO.
+    Paramters:
+    logfile (string): The file to log messages to. Defaults to 'program_name.log'.
+    loglevel (string): The minimum level of log messages to display. Defaults to logging.INFO.
     """
     class CustomFormatter(logging.Formatter):
         """
@@ -122,14 +122,14 @@ def parse_yaml_file(file):
         logging.error(err)
         return 0
 
-def list_comprehension_return_dict_if(keysValues,key):
+def list_comprehension_return_dict_if(keysValues, key):
     return {k:v for (k,v) in keysValues if k==key}
 
-def list_comprehension_return_list_if(valueList,key,value):
+def list_comprehension_return_list_if(valueList, key, value):
     return [v for v in valueList if v[key]==value]
 
-def nested_list_comprehension_return_list_if(valueList,key,value,inner_key):
-    return [[v2 for v2 in v[inner_key]] for v in valueList if v[key]==value]
+def nested_list_comprehension_return_list_if(valueList, key, value, inner_key):
+    return [list(v[inner_key]) for v in valueList if v[key]==value]
 
 def is_ipv4(string):
     try:
@@ -138,6 +138,41 @@ def is_ipv4(string):
     except ValueError:
         return False
 
+def case_0():
+    logging.debug("All healthchecks are healthy and at least one link is active")
+    return 0
+    
+def case_1(controlPingData):
+    logging.debug("Number of consecutive controller check failures is %d",
+                    controlPingData["consecutiveFailures"])
+    logging.info("Failure start time is %s",  controlPingData["failingSince"].split("+")[0])
+    logging.debug("Current time is %s", controlPingData["lastCheckTime"])
+    return 1
+
+def case_2(linkHealthData):
+    logging.debug("All links are down, details are %s.", linkHealthData["details"])
+    return 1
+
+def case_3(controlPingData, switchTimeout):
+    # Switch after delay timeout reached to allow long live sessions
+    # to drain if only control channel is failed
+    delaySwitch = (datetime.strptime(controlPingData["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
+                    controlPingData["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
+    logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
+    if delaySwitch > switchTimeout:
+        logging.debug("Switch to slave due to timeout of %ds has been triggered", switchTimeout)
+        return 1
+    return 0
+
+# Create a switch table mapping conditions to corresponding functions
+switch_table = {
+    (True, True): case_0,
+    (False, False): case_1,
+    (True, False): case_2,
+    (False, True): case_3
+    
+}
+
 def main():
     """
     Main Function
@@ -145,10 +180,10 @@ def main():
 
     ### Get command line arguments or environment variables
     args = get_arguments()
-    routerConfigFilePath = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',\
+    routerConfigFilePath = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',
                                            '/opt/netfoundry/ziti/ziti-router/config.yml')
     switchTimeout = int(parse_variables(args.switchTimeout, 'SWITCH_TIMEOUT', 600))
-    noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath, 
+    noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath,
                                              'NO_T_FLAG_ROUTERS_FILE_PATH', "")
     logFile = parse_variables(args.logFile, 'LOG_FILE', "")
     logLevel = parse_variables(args.logLevel, 'LOG_LEVEL', "INFO")
@@ -163,7 +198,7 @@ def main():
             logging.error(err)
             if logLevel == "DEBUG":
                 traceback.print_exception(*sys.exc_info())
-            nonTraversableRouters = [] 
+            nonTraversableRouters = []
         if not nonTraversableRouters:
             nonTraversableRouters = []
     else:
@@ -208,42 +243,21 @@ def main():
 
     # Evaluate all active links and remove links with no-traversal flag
     if linkHealthData.get("details"):
-        newLinkDetails=[d for d in linkHealthData["details"] if d["destRouterId"]
-                        not in nonTraversableRouters
+        newLinkDetails = [d for d in linkHealthData["details"] if d["destRouterId"] not in nonTraversableRouters
                         if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp]
         logging.debug("New link data after filtering %s", newLinkDetails)
-        newLinkHealthy=True
+        newLinkHealthy = True
         if len(newLinkDetails) == 0:
             newLinkDetails = []
-            newLinkHealthy=False
+            newLinkHealthy = False
     else:
         newLinkDetails = []
-        newLinkHealthy=False
+        newLinkHealthy  = False
 
-    # Decision making logic
-    if hcData["healthy"] == True and newLinkDetails:
-        logging.debug("Healthchecks are healthy and more links than one are active")
-        return 0
-    # If both are false, then switch
-    if controlPingData["healthy"] == False and newLinkHealthy == False:
-        logging.debug("Number of consecutive controller check failures is %d",
-                        controlPingData["consecutiveFailures"])
-        logging.info("Failure start time is %s",  controlPingData["failingSince"].split("+")[0])
-        logging.debug("Current time is %s", controlPingData["lastCheckTime"])
-        return 1
-    # If any of them is true, then analyze bit furthur
-    if controlPingData["healthy"] == True and newLinkHealthy == False:
-        logging.debug("All links are down, details are %s.", linkHealthData["details"])
-        return 1
-    if controlPingData["healthy"] == False and newLinkHealthy == True:
-        # Switch after delay timeout reached to allow long live sessions
-        # to drain if only control channel is failed
-        delaySwitch = (datetime.strptime(controlPingData["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ')
-                                            - datetime.strptime(controlPingData["failingSince"],
-                                            '%Y-%m-%dT%H:%M:%SZ')).total_seconds()
-        logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
-        if delaySwitch > switchTimeout:
-            logging.debug("Switch due to timeout of %ds has been triggered", switchTimeout )
-            return 1
-        return 0
-    return 0
+    # Evaluate the various conditions and execute the corresponding function
+    condition = (controlPingData["healthy"], newLinkHealthy)
+    # Default to case 0
+    result = switch_table.get(condition, lambda: 0)(controlPingData=controlPingData, 
+                                                      linkHealthData=linkHealthData, 
+                                                      switchTimeout=switchTimeout)  
+    return result
