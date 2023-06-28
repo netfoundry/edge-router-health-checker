@@ -138,29 +138,31 @@ def is_ipv4(string):
     except ValueError:
         return False
 
-def case_0():
+def case_0(**kwargs):
     logging.debug("All healthchecks are healthy and at least one link is active")
+    logging.debug("Control Ping is %s", kwargs["controlPingData"]["healthy"])
+    logging.debug("Link Ping is %s", kwargs["linkHealthData"]["healthy"])
     return 0
     
-def case_1(controlPingData):
+def case_1(**kwargs):
     logging.debug("Number of consecutive controller check failures is %d",
-                    controlPingData["consecutiveFailures"])
-    logging.info("Failure start time is %s",  controlPingData["failingSince"].split("+")[0])
-    logging.debug("Current time is %s", controlPingData["lastCheckTime"])
+                    kwargs["controlPingData"]["consecutiveFailures"])
+    logging.info("Failure start time is %s",  kwargs["controlPingData"]["failingSince"].split("+")[0])
+    logging.debug("Current time is %s", kwargs["controlPingData"]["lastCheckTime"])
     return 1
 
-def case_2(linkHealthData):
-    logging.debug("All links are down, details are %s.", linkHealthData["details"])
+def case_2(**kwargs):
+    logging.debug("All links are down, details are %s.", kwargs["linkHealthData"]["details"])
     return 1
 
-def case_3(controlPingData, switchTimeout):
+def case_3(**kwargs):
     # Switch after delay timeout reached to allow long live sessions
     # to drain if only control channel is failed
-    delaySwitch = (datetime.strptime(controlPingData["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
-                    controlPingData["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
+    delaySwitch = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
+                    kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
     logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
-    if delaySwitch > switchTimeout:
-        logging.debug("Switch to slave due to timeout of %ds has been triggered", switchTimeout)
+    if delaySwitch > kwargs["switchTimeout"]:
+        logging.debug("Switch to slave due to timeout of %ds has been triggered", kwargs["switchTimeout"])
         return 1
     return 0
 
@@ -237,8 +239,6 @@ def main():
     [controlPingData] = list_comprehension_return_list_if(hcData["checks"],"id","controllerPing")
     [linkHealthData] = list_comprehension_return_list_if(hcData["checks"],"id","link.health")
     logging.debug("HC = %s", hcData)
-    logging.debug("Control Ping is %s", controlPingData["healthy"])
-    logging.debug("Link Ping is %s", linkHealthData["healthy"])
     logging.debug("Overall Ping is %s", hcData["healthy"])
 
     # Evaluate all active links and remove links with no-traversal flag
