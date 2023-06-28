@@ -38,10 +38,10 @@ jobs:
           name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.gz
 
-          - name: Get version
-          id: version
-          run: |
-            echo "release_tag=`erhchecker.pyz -v`" >> $GITHUB_OUTPUT
+      - name: Get version
+        id: version
+        run: |
+          echo "release_tag=`erhchecker.pyz -v`" >> $GITHUB_OUTPUT
 
   create_release:
     runs-on: ubuntu-22.04
