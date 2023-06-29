@@ -4,7 +4,6 @@ NetFoundry Edge Router Health Check
 import argparse
 import logging
 import os
-import sys
 import traceback
 import ipaddress
 import socket
@@ -12,12 +11,25 @@ from datetime import datetime
 import requests
 import urllib3
 import yaml
+from jsonschema import validate, exceptions as jsonexcept
 from colorama import Fore, Style, init
 urllib3.disable_warnings(category = urllib3.exceptions.InsecureRequestWarning)
 
-# Requests Options
+# Global Options
 TIMEOUT = 60
 HEADERS = {"content-type": "application/json"}
+SCHEMA_ROUTERIDS  = {
+                        "type": "object",
+                        "required": ["routerIds"],
+                        "properties": {
+                            "routerIds": {
+                                "type": "array", 
+                                "items": {
+                                     "type": "string"
+                                }
+                            }
+                        }
+                    }
 
 def get_arguments():
     """
@@ -41,7 +53,6 @@ def get_arguments():
                         action='version',
                         version=__version__)
     return parser.parse_args()
-
 
 def setup_logging(logfile, loglevel):
     """
@@ -113,14 +124,24 @@ def parse_variables(cmdVar, envVar, defaultVar):
         return cmdVar
     return os.environ.get(envVar,defaultVar)
 
-def parse_yaml_file(file):
-    logging.debug("Parsing Yaml File: %s", file)
+def parse_yaml_file(file, logString):
+    logging.debug("Parsing YAML File: %s", file)
+
+    if not file:
+        logging.warning("Empty File Path for %s", logString)
+        return None
+    
+    if os.path.getsize(file) == 0:
+        logging.warning("File has no content: %s", logString)
+        return None
+    
     try:
         with open(file, mode='r', encoding='utf-8') as newFile:
             return yaml.safe_load(newFile)
-    except Exception as err:
-        logging.error(err)
-        return None
+    except (yaml.YAMLError, IOError):
+        logging.warning(traceback.format_exc())
+
+    return None
 
 def list_comprehension_return_dict_if(keysValues, key):
     return {k:v for (k,v) in keysValues if k==key}
@@ -181,46 +202,48 @@ def main():
     logFile = parse_variables(args.logFile, 'LOG_FILE', "")
     logLevel = parse_variables(args.logLevel, 'LOG_LEVEL', "INFO")
 
-    ### Set up initial variables' states/values
+    # Set up initial variables' states/values
     setup_logging(logFile, logLevel)
-    if config := parse_yaml_file(routerConfigFilePath):
+    if config := parse_yaml_file(routerConfigFilePath, "router config file"):
         pass
     else:
         return 0
-    if nonTraversableRouters := parse_yaml_file(noTFlagRoutersFilePath):
-        nonTraversableRouters = nonTraversableRouters.get("routerIds")
-    else:
-        nonTraversableRouters = []
+    nonTraversableRouters = []
+    if ids := parse_yaml_file(noTFlagRoutersFilePath, "router ids file"):
+        try:
+            validate(instance=ids, schema=SCHEMA_ROUTERIDS)
+            nonTraversableRouters = ids.get("routerIds")
+        except jsonexcept.ValidationError:
+            logging.warning(traceback.format_exc(0))
+            nonTraversableRouters = []
     logging.debug("Routers list is %s", nonTraversableRouters)
+
+    # Get HC Url from config file
     try:
-        [[hcPort]] = nested_list_comprehension_return_list_if(
-                            list_comprehension_return_dict_if(config.items(),"web")["web"],
-                            "name","health-check",
-                            "bindPoints")
-        [[hcPath]] = nested_list_comprehension_return_list_if(
-                            list_comprehension_return_dict_if(config.items(),"web")["web"],
-                            "name","health-check","apis")
+        web_config = list_comprehension_return_dict_if(config.items(), "web")["web"]
+        [[hcPort]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "bindPoints")
+        [[hcPath]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "apis")
+        url = f'https://127.0.0.1:{hcPort["address"].split(":")[1]}/{hcPath["binding"]}'
         ctrlAddr = config["ctrl"]["endpoint"].split(":")[1]
-        if is_ipv4(ctrlAddr):
-            ctrlIp = [ctrlAddr]
-        else:
-            ctrlIp = [socket.gethostbyname(ctrlAddr)]
+    except (KeyError, ValueError):
+        logging.warning(traceback.format_exc())
+        return 0
+    
+    #resolve ctrl dns name if needed
+    try:
+        ctrlIp = [ctrlAddr] if is_ipv4(ctrlAddr) else [socket.gethostbyname(ctrlAddr)]   
         logging.debug("ctrl address is %s", ctrlIp)
-    except Exception as err:
-        logging.error(err)
-        if logLevel == "DEBUG":
-            traceback.print_exception(*sys.exc_info())
-        return 1
-    url = f'https://127.0.0.1:{hcPort["address"].split(":")[1]}/{hcPath["binding"]}'
+    except (socket.gaierror, socket.herror, OSError):
+        logging.warning(traceback.format_exc())
+        return 0
 
     # Get Healthcheck data
     try:
         response = requests.get(url, timeout=TIMEOUT, headers=HEADERS, verify=False)
-    except Exception as err:
+    except requests.RequestException as err:
         logging.error(err)
-        if logLevel == "DEBUG":
-            traceback.print_exception(*sys.exc_info())
         return 1
+
     hcData = response.json()["data"]
     [controlPingData] = list_comprehension_return_list_if(hcData["checks"],"id","controllerPing")
     [linkHealthData] = list_comprehension_return_list_if(hcData["checks"],"id","link.health")
@@ -228,17 +251,19 @@ def main():
     logging.debug("Overall Ping is %s", hcData["healthy"])
 
     # Evaluate all active links and remove links with no-traversal flag
+    newLinkDetails = []
+    newLinkHealthy = False
+
     if linkHealthData.get("details"):
-        newLinkDetails = [d for d in linkHealthData["details"] if d["destRouterId"] not in nonTraversableRouters
-                        if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp]
+        newLinkDetails = [
+            d for d in linkHealthData["details"]
+            if d["destRouterId"] not in nonTraversableRouters
+            if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp
+        ]
         logging.debug("New link data after filtering %s", newLinkDetails)
-        newLinkHealthy = True
-        if len(newLinkDetails) == 0:
-            newLinkDetails = []
-            newLinkHealthy = False
-    else:
-        newLinkDetails = []
-        newLinkHealthy  = False
+
+        if len(newLinkDetails) > 0:
+            newLinkHealthy = True
 
     # Evaluate the various conditions and execute the corresponding function
     condition = (controlPingData["healthy"], newLinkHealthy)
