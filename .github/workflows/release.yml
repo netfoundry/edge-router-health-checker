@@ -29,7 +29,7 @@ jobs:
           cp src/* erhchecker/
           python3 -m pip install -r files/requirements.txt --target erhchecker --upgrade
           python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker.pyz erhchecker 
-          tar -cvzf erhchecker_${{matrix.goos}}_${{matrix.goarch}}.gz erhchecker.pyz
+          tar -cvzf erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz erhchecker.pyz
 
       - name: get version
         id: version
