@@ -43,7 +43,7 @@ routerIds:
 - wgLwaF-KDH
 ```
 
-1. In CloudZiti networks, there is a fabric only router deployed on the controller to allow for the managment channel to flow through to reach the salt master that is configured on the controller. The link from this router is ignored by the decision alrgorithm even if it is reported as being healthy. To find this link, the ip address of the controller is compared to the destination ip address of each link reported by the `link.health` check until match is made.
+1. In CloudZiti networks, a fabric only router is deployed on the controller host to allow for the management channel to flow through to reach the salt master that runs on that host. The link from this router is ignored by the decision algorithm even if it is reported as being healthy. To find this link, the ip address of the controller is compared to the destination ip address of each link reported by the `link.health` check until match is made.
 
 ***Example Usage***
 
