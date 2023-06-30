@@ -1,0 +1,42 @@
+---
+name: ci
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        goos: [linux]
+        goarch: [amd64]
+    steps:
+      - name: check out code
+        uses: actions/checkout@v3
+          
+      - name: install updates and python packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get upgrade -yqq
+          sudo apt-get install -y python3-pip
+          pip install pylint
+
+      - name: verify code to confirm to python
+        run: |
+          pylint --rcfile .pylintrc src/*
+
+      - name:  tar python package for release
+        run: |
+          mkdir erhchecker
+          cp src/* erhchecker/
+          python3 -m pip install -r files/requirements.txt --target erhchecker --upgrade
+          python3 -m zipapp -p "/usr/bin/python3" --compress --output erhchecker.pyz erhchecker
+          tar -cvzf erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz erhchecker.pyz
+          
+      - name: upload a built artifact for testing
+        if: startsWith(github.ref, 'refs/heads/main') == false
+        uses: actions/upload-artifact@v3
+        with:
+          name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
+          path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
+          retention-days: 5
