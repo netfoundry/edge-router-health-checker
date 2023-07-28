@@ -187,6 +187,7 @@ def case_3(**kwargs):
                     kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
     logging.debug("Time since Controller channel has gone down is over %ds", delaySwitchReading)
     if not if_circuits_active(kwargs["zitiBinaryFilePath"]):
+        logging.debug("Switch to slave, since they are no active circuits")
         return 1
     if delaySwitchReading > kwargs["switchTimeout"]:
         logging.debug("Switch to slave due to timeout of %ds has been triggered", kwargs["switchTimeout"])
