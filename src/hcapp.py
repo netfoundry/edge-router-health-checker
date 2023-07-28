@@ -8,6 +8,7 @@ import traceback
 import ipaddress
 import socket
 from datetime import datetime
+import subprocess
 import yaml
 import requests
 import urllib3
@@ -40,6 +41,8 @@ def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--routerConfigFilePath', type=str,
                         help='Specify the edge router config file')
+    parser.add_argument('-z', '--zitiBinaryFilePath', type=str,
+                        help='Specify the ziti binary file')
     parser.add_argument('-t', '--switchTimeout', type=int,
                         help='Time to pass to allow for sessions drainage')
     parser.add_argument('-r', '--noTFlagRoutersFilePath', type=str,
@@ -143,8 +146,25 @@ def is_ipv4(string):
     except ValueError:
         return False
 
+def if_circuits_active(zitiBinaryFilePath):
+    try:
+        circuitsCount = subprocess.run([zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
+                                        check=True,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=15).stdout.find("circuits")
+        
+        logging.debug("The circuit count is %d", circuitsCount)
+        if circuitsCount > 2:
+            return True
+        return False
+            
+    except subprocess.CalledProcessError:
+        logging.warning(traceback.format_exc(0))
+        return False
+
 def case_0(**kwargs):
-    logging.debug("All healthchecks are healthy and at least one link is active")
+    logging.debug("All health-checks are healthy and at least one link is active")
     logging.debug("Control Ping is %s", kwargs["controlPingData"]["healthy"])
     logging.debug("Link Ping is %s", kwargs["linkHealthData"]["healthy"])
     return 0
@@ -163,10 +183,12 @@ def case_2(**kwargs):
 def case_3(**kwargs):
     # Switch after delay timeout reached to allow long live sessions
     # to drain if only control channel is failed
-    delaySwitch = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
+    delaySwitchReading = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
                     kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
-    logging.debug("Time since Controller channel has gone down is over %ds", delaySwitch)
-    if delaySwitch > kwargs["switchTimeout"]:
+    logging.debug("Time since Controller channel has gone down is over %ds", delaySwitchReading)
+    if not if_circuits_active(kwargs["zitiBinaryFilePath"]):
+        return 1
+    if delaySwitchReading > kwargs["switchTimeout"]:
         logging.debug("Switch to slave due to timeout of %ds has been triggered", kwargs["switchTimeout"])
         return 1
     return 0
@@ -178,13 +200,15 @@ def main():
 
     # Get command line arguments or environment variables
     args = get_arguments()
-    routerConfigFilePath = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',
+    routerConfigFilePath   = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',
                                            '/opt/netfoundry/ziti/ziti-router/config.yml')
-    switchTimeout = int(parse_variables(args.switchTimeout, 'SWITCH_TIMEOUT', 600))
+    zitiBinaryFilePath  = parse_variables(args.zitiBinaryFilePath, 'ZITI_BINARY_FILE_PATH',
+                                           '/opt/netfoundry/ziti/ziti')
+    switchTimeout          = int(parse_variables(args.switchTimeout, 'SWITCH_TIMEOUT', 600))
     noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath,
                                              'NO_T_FLAG_ROUTERS_FILE_PATH', "")
-    logFile = parse_variables(args.logFile, 'LOG_FILE', "")
-    logLevel = parse_variables(args.logLevel, 'LOG_LEVEL', "INFO")
+    logFile                = parse_variables(args.logFile, 'LOG_FILE', "")
+    logLevel               = parse_variables(args.logLevel, 'LOG_LEVEL', "INFO")
 
     # Set up initial variables' states/values
     setup_logging(logFile, logLevel)
@@ -263,5 +287,6 @@ def main():
     # Default to case 0
     result = switch_table.get(condition, lambda: 0)(controlPingData=controlPingData, 
                                                     linkHealthData=linkHealthData, 
-                                                    switchTimeout=switchTimeout)  
+                                                    switchTimeout=switchTimeout,
+                                                    zitiBinaryFilePath=zitiBinaryFilePath)
     return result
