@@ -9,6 +9,7 @@ import ipaddress
 import socket
 from datetime import datetime
 import subprocess
+import re
 import yaml
 import requests
 import urllib3
@@ -35,8 +36,11 @@ SCHEMA_ROUTERIDS  = {
 def get_arguments():
     """
     Create argparser Namespace
-    :return: A Namespace containing arguments
+
+    Returns:
+        A Namespace containing arguments
     """
+
     __version__ = '1.0.0'
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--routerConfigFilePath', type=str,
@@ -58,9 +62,8 @@ def get_arguments():
     return parser.parse_args()
 
 class CustomFormatter(logging.Formatter):
-    """
-    Return a custom color for the message based on the log level.
-    """
+    """Return a custom color for the message based on the log level."""
+
     LEVEL_COLORS = {
         logging.CRITICAL: Fore.CYAN,
         logging.ERROR: Fore.RED,
@@ -106,24 +109,43 @@ def setup_logging(logfile='program_name.log', loglevel=logging.INFO):
     logger.addHandler(console_handler)
 
 def parse_variables(cmdVar, envVar, defaultVar):
+    """Returns the value of the variable, depending on whether it was passed as a command-line argument or an environment variable.
+
+    Parameters:
+    - cmdVar: The command-line argument value.
+    - envVar: The environment variable name.
+    - defaultVar: The default value.
+
+    Returns:
+        The value of the variable.
+    """
     if cmdVar is not None:
         return cmdVar
     return os.environ.get(envVar,defaultVar)
 
-def parse_yaml_file(file, logString):
-    logging.debug("Parsing YAML File: %s", file)
+def parse_yaml_file(filePath, logString):
+    """Parses a YAML file and returns the parsed data.
 
-    if not file:
+    Parameters:
+    - filePath: The path to the YAML file.
+    - logString: The string to use for logging.
+
+    Returns:
+        The parsed YAML data, or None if the file could not be parsed.
+    """
+    logging.debug("Parsing YAML File: %s", filePath)
+
+    if not filePath:
         logging.warning("No File Path given for '%s' file", logString)
         return None
     
-    if os.path.getsize(file) == 0:
+    if os.path.getsize(filePath) == 0:
         logging.warning("File has no content: %s", logString)
         return None
     
     try:
-        with open(file, mode='r', encoding='utf-8') as newFile:
-            return yaml.safe_load(newFile)
+        with open(filePath, mode='r', encoding='utf-8') as file:
+            return yaml.safe_load(file)
     except (yaml.YAMLError, IOError):
         logging.warning(traceback.format_exc(0))
         logging.debug(traceback.format_exc())
@@ -131,45 +153,89 @@ def parse_yaml_file(file, logString):
     return None
 
 def list_comprehension_return_dict_if(keysValues, key):
-    return {k:v for (k,v) in keysValues if k==key}
+    """Returns a dictionary of the keys and values, where the keys match the given key.
+
+    Parameter:
+    - keysValues: The list of keys and values.
+    - key: The key to match.
+
+    Returns:
+        A dictionary of the keys and values that match the given key.
+    """
+
+    return {k: v for k, v in keysValues if k == key}
 
 def list_comprehension_return_list_if(valueList, key, value):
-    return [v for v in valueList if v[key]==value]
+    """Returns a list of the values from the list, where the values match the given key and value.
 
-def nested_list_comprehension_return_list_if(valueList, key, value, inner_key):
-    return [list(v[inner_key]) for v in valueList if v[key]==value]
+    Parameters:
+    - valueList: The list of values.
+    - key: The key to match.
+    - value: The value to match.
+
+    Returns:
+        A list of the values from the list that match the given key and value.
+    """
+
+    return [v for v in valueList if v[key] == value]
+
+def nested_list_comprehension_return_list_if(valueList, key, value, innerKey):
+    """Returns a list of the inner keys and values from the list, where the inner keys match the given key and value.
+
+    Parameters:
+    - valueList: The list of values.
+    - key: The key to match.
+    - value: The value to match.
+    - inner_key: The inner key to return the values for.
+
+    Returns:
+        A list of the inner keys and values from the list that match the given key and value.
+    """
+
+    return [list(v[innerKey]) for v in valueList if v[key] == value]
 
 def is_ipv4(string):
+    """Returns True if the string is a valid IPv4 address, False otherwise."""
+
     try:
         ipaddress.IPv4Network(string)
         return True
     except ValueError:
         return False
 
-def if_circuits_active(zitiBinaryFilePath):
+def are_circuits_active(zitiBinaryFilePath):
+    """Returns True if there are active circuits, False otherwise."""
+
     try:
-        circuitsCount = subprocess.run([zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
-                                        check=True,
-                                        capture_output=True,
-                                        text=True,
-                                        timeout=15).stdout.find("circuits")
-        
-        logging.debug("The circuit count is %d", circuitsCount)
-        if circuitsCount > 2:
-            return True
-        return False
-            
+        circuits_data = subprocess.run(
+            [zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15).stdout
+        logging.debug(circuits_data)
     except subprocess.CalledProcessError:
         logging.warning(traceback.format_exc(0))
         return False
 
+    searchPattern = r"\bcircuits\b(\s+\(([^()]+)\))?"
+    match = re.search(searchPattern, circuits_data)
+    if match and int(match.group(2)) > 2:
+        logging.info("Number of active circuits is %s", match.group(2))
+        return True
+    return False
+
 def case_0(**kwargs):
+    """Returns 0 when all health-checks are healthy and at least one link is active."""
+
     logging.debug("All health-checks are healthy and at least one link is active")
     logging.debug("Control Ping is %s", kwargs["controlPingData"]["healthy"])
     logging.debug("Link Ping is %s", kwargs["linkHealthData"]["healthy"])
     return 0
     
 def case_1(**kwargs):
+    """Returns 1 when all health-checks are not healthy."""
+
     logging.debug("Number of consecutive controller check failures is %d",
                     kwargs["controlPingData"]["consecutiveFailures"])
     logging.info("Failure start time is %s",  kwargs["controlPingData"]["failingSince"].split("+")[0])
@@ -177,16 +243,20 @@ def case_1(**kwargs):
     return 1
 
 def case_2(**kwargs):
+    """Returns 1 when all links are down"""
+
     logging.debug("All links are down, details are %s.", kwargs["linkHealthData"]["details"])
     return 1
 
 def case_3(**kwargs):
+    """Returns 1 when the delay switch timeout has been reached or no circuits are active, 0 otherwise."""
+
     # Switch after delay timeout reached to allow long live sessions
     # to drain if only control channel is failed
     delaySwitchReading = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
                     kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
     logging.debug("Time since Controller channel has gone down is over %ds", delaySwitchReading)
-    if not if_circuits_active(kwargs["zitiBinaryFilePath"]):
+    if not are_circuits_active(kwargs["zitiBinaryFilePath"]):
         logging.debug("Switch to slave, since they are no active circuits")
         return 1
     if delaySwitchReading > kwargs["switchTimeout"]:
