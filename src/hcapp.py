@@ -41,7 +41,7 @@ def get_arguments():
         A Namespace containing arguments
     """
 
-    __version__ = '1.0.0'
+    __version__ = '1.1.0'
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--routerConfigFilePath', type=str,
                         help='Specify the edge router config file')
@@ -207,19 +207,19 @@ def are_circuits_active(zitiBinaryFilePath):
     """Returns True if there are active circuits, False otherwise."""
 
     try:
-        circuits_data = subprocess.run(
+        circuitsData = subprocess.run(
             [zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
             check=True,
             capture_output=True,
             text=True,
             timeout=15).stdout
-        logging.debug(circuits_data)
+        logging.debug(circuitsData)
     except subprocess.CalledProcessError:
         logging.warning(traceback.format_exc(0))
         return False
 
     searchPattern = r"\bcircuits\b(\s+\(([^()]+)\))?"
-    match = re.search(searchPattern, circuits_data)
+    match = re.search(searchPattern, circuitsData)
     if match and int(match.group(2)) > 2:
         logging.info("Number of active circuits is %s", match.group(2))
         return True
@@ -249,10 +249,12 @@ def case_2(**kwargs):
     return 1
 
 def case_3(**kwargs):
-    """Returns 1 when the delay switch timeout has been reached or no circuits are active, 0 otherwise."""
+    """
+    Returns 
+            1 when controllerPing is not healthy and the delay switch timeout has been reached or no circuits are active, 
+            0 otherwise.
+    """
 
-    # Switch after delay timeout reached to allow long live sessions
-    # to drain if only control channel is failed
     delaySwitchReading = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
                     kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
     logging.debug("Time since Controller channel has gone down is over %ds", delaySwitchReading)
@@ -273,7 +275,7 @@ def main():
     args = get_arguments()
     routerConfigFilePath   = parse_variables(args.routerConfigFilePath, 'ROUTER_CONFIG_FILE_PATH',
                                            '/opt/netfoundry/ziti/ziti-router/config.yml')
-    zitiBinaryFilePath  = parse_variables(args.zitiBinaryFilePath, 'ZITI_BINARY_FILE_PATH',
+    zitiBinaryFilePath     = parse_variables(args.zitiBinaryFilePath, 'ZITI_BINARY_FILE_PATH',
                                            '/opt/netfoundry/ziti/ziti')
     switchTimeout          = int(parse_variables(args.switchTimeout, 'SWITCH_TIMEOUT', 600))
     noTFlagRoutersFilePath = parse_variables(args.noTFlagRoutersFilePath,
