@@ -13,7 +13,7 @@ The `controllerPing` and `link.health` are both False. Return state is 1.
 1. case_2 (`True`, `False`)
 The `controllerPing` is True and `link.health` is False. Return state is 1.
 1. case_3 (`False`, `True`)
-The `controllerPing` is False and `link.health` is True. Return state is 1. In this state, a timer (environment variable is `SWITCH_TIMEOUT`) was introduced to delay the return state change to 1 to allow for the current sessions to drain. The default value is 5 minutes. The timer can be adjusted.
+The `controllerPing` is False and `link.health` is True. Return state is 1. In this state, a timer (environment variable is `SWITCH_TIMEOUT`) was introduced to delay the return state change to 1 to allow for the current sessions to drain. The default value is 5 minutes. The timer can be adjusted. Additionally, the current session count is checked, if they are equal to 2 or less (assumption is that 2 sessions are related to Management Plane.), it will switch over before the timer expires.
 
 ***Important Notes:***
 
