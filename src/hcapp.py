@@ -203,7 +203,7 @@ def is_ipv4(string):
     except ValueError:
         return False
 
-def are_circuits_active(zitiBinaryFilePath):
+def any_live_circuits(zitiBinaryFilePath):
     """Returns True if there are active circuits, False otherwise."""
 
     try:
@@ -258,11 +258,12 @@ def case_3(**kwargs):
     delaySwitchReading = (datetime.strptime(kwargs["controlPingData"]["lastCheckTime"], '%Y-%m-%dT%H:%M:%SZ') - datetime.strptime(
                     kwargs["controlPingData"]["failingSince"],'%Y-%m-%dT%H:%M:%SZ')).total_seconds()
     logging.debug("Time since Controller channel has gone down is over %ds", delaySwitchReading)
-    if not are_circuits_active(kwargs["zitiBinaryFilePath"]):
-        logging.debug("Switch to slave, since they are no active circuits")
+
+    if any_live_circuits(kwargs["zitiBinaryFilePath"]) is False:
+        logging.debug("Switch to backup, since they are no active circuits")
         return 1
     if delaySwitchReading > kwargs["switchTimeout"]:
-        logging.debug("Switch to slave due to timeout of %ds has been triggered", kwargs["switchTimeout"])
+        logging.debug("Switch to backup due to timeout of %ds has been triggered", kwargs["switchTimeout"])
         return 1
     return 0
 
