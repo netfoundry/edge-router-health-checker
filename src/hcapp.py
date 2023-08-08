@@ -208,7 +208,7 @@ def any_live_circuits(zitiBinaryFilePath):
 
     try:
         circuitsData = subprocess.run(
-            [zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
+            ["sudo", zitiBinaryFilePath, "agent", "router", "dump-routes", "--app-type", "router"],
             check=True,
             capture_output=True,
             text=True,
