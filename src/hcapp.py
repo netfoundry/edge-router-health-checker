@@ -136,11 +136,11 @@ def parse_yaml_file(filePath, logString):
     logging.debug("Parsing YAML File: %s", filePath)
 
     if not filePath:
-        logging.warning("No File Path given for '%s' file", logString)
+        logging.debug("No File Path given for '%s' file", logString)
         return None
     
     if os.path.getsize(filePath) == 0:
-        logging.warning("File has no content: %s", logString)
+        logging.debug("File has no content: %s", logString)
         return None
     
     try:
