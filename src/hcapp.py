@@ -41,7 +41,7 @@ def get_arguments():
         A Namespace containing arguments
     """
 
-    __version__ = '1.1.0'
+    __version__ = '1.2.0'
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--routerConfigFilePath', type=str,
                         help='Specify the edge router config file')
@@ -194,14 +194,129 @@ def nested_list_comprehension_return_list_if(valueList, key, value, innerKey):
 
     return [list(v[innerKey]) for v in valueList if v[key] == value]
 
-def is_ipv4(string):
-    """Returns True if the string is a valid IPv4 address, False otherwise."""
+def address_host(address):
+    """Returns the host part of an openziti 'proto:host:port' address, or None if it cannot be parsed.
+
+    Handles bracketed IPv6 hosts, e.g. 'tls:[::1]:6262' -> '::1'.
+    """
+
+    parts = str(address).split(":")
+    if len(parts) < 3:
+        return None
+    return ":".join(parts[1:-1]).strip("[]") or None
+
+def read_endpoints_file(filePath):
+    """Returns the controller endpoint addresses listed in the router's endpoints file, or [].
+
+    The router (v2.0+) keeps the HA controller list it learns at runtime in this file, written as
+    root with mode 0600. If a direct read is denied, fall back to non-interactive 'sudo -n cat'.
+    """
 
     try:
-        ipaddress.IPv4Network(string)
-        return True
-    except ValueError:
-        return False
+        with open(filePath, mode='r', encoding='utf-8') as file:
+            content = file.read()
+    except FileNotFoundError:
+        logging.debug("Controller endpoints file not found: %s", filePath)
+        return []
+    except PermissionError:
+        logging.debug("No read access to %s, retrying with sudo", filePath)
+        try:
+            content = subprocess.run(
+                ["sudo", "-n", "cat", filePath],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15).stdout
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            logging.warning("Unable to read controller endpoints file %s, using ctrl endpoints from router config only",
+                            filePath)
+            logging.debug(traceback.format_exc())
+            return []
+    return parse_endpoints(content)
+
+def parse_endpoints(content):
+    """Returns the 'endpoints' list from the endpoints file content, or []."""
+
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError:
+        logging.warning(traceback.format_exc(0))
+        return []
+    if not isinstance(data, dict):
+        return []
+    # The router matches the 'endpoints' key case-insensitively
+    for key, value in data.items():
+        if str(key).lower() == "endpoints" and isinstance(value, list):
+            return [str(v) for v in value]
+    return []
+
+def get_ctrl_endpoints(config, routerConfigFilePath):
+    """Returns all controller endpoint addresses known to the router.
+
+    Combines ctrl.endpoint or ctrl.endpoints from the router config with the endpoints file
+    (ctrl.endpointsFile, defaulting to endpoints.yml next to the router config).
+    """
+
+    ctrl = config.get("ctrl")
+    if not isinstance(ctrl, dict):
+        return []
+    if ctrl.get("endpoint"):
+        endpoints = [str(ctrl["endpoint"])]
+    elif isinstance(ctrl.get("endpoints"), list):
+        endpoints = [str(e) for e in ctrl["endpoints"]]
+    else:
+        endpoints = []
+
+    endpointsFile = ctrl.get("endpointsFile") or os.path.join(os.path.dirname(routerConfigFilePath), "endpoints.yml")
+    for endpoint in read_endpoints_file(endpointsFile):
+        if endpoint not in endpoints:
+            endpoints.append(endpoint)
+    return endpoints
+
+def resolve_ctrl_ips(endpoints):
+    """Returns the set of IP addresses for the given controller endpoint addresses.
+
+    Entries that cannot be parsed or resolved are logged and skipped.
+    """
+
+    ctrlIps = set()
+    for endpoint in endpoints:
+        if not (host := address_host(endpoint)):
+            logging.warning("Unable to parse controller endpoint %s", endpoint)
+            continue
+        try:
+            ctrlIps.add(str(ipaddress.ip_address(host)))
+        except ValueError:
+            try:
+                ctrlIps.add(socket.gethostbyname(host))
+            except OSError:
+                logging.warning("Unable to resolve controller endpoint %s", endpoint)
+                logging.debug(traceback.format_exc())
+    return ctrlIps
+
+def link_remote_ips(link):
+    """Returns the remote IPs of all underlay connections of a link reported by link.health.
+
+    The address keys depend on the openziti version and link type ('ack'/'payload' before v1.6.6,
+    'link.ack'/'link.default' or 'single' after), so every entry is inspected regardless of key.
+    """
+
+    addresses = link.get("addresses") or {}
+    hosts = {address_host(conn.get("remoteAddr", "")) for conn in addresses.values()}
+    hosts.discard(None)
+    return hosts
+
+def filter_links(linkDetails, nonTraversableRouters, ctrlIps):
+    """Returns the links that count toward fabric health.
+
+    Drops links to non-traversable routers and links to the fabric router co-located on a controller host.
+    """
+
+    return [
+        d for d in linkDetails
+        if d["destRouterId"] not in nonTraversableRouters
+        if not link_remote_ips(d) & ctrlIps
+    ]
 
 def any_live_circuits(zitiBinaryFilePath):
     """Returns True if there are active circuits, False otherwise."""
@@ -267,6 +382,19 @@ def case_3(**kwargs):
         return 1
     return 0
 
+def get_hc_url(config):
+    """Returns the local health check url built from the router config web section, or None if not found."""
+
+    try:
+        web_config = list_comprehension_return_dict_if(config.items(), "web")["web"]
+        [[hcPort]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "bindPoints")
+        [[hcPath]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "apis")
+        return f'https://127.0.0.1:{hcPort["address"].split(":")[1]}/{hcPath["binding"]}'
+    except (KeyError, ValueError):
+        logging.warning(traceback.format_exc(0))
+        logging.debug(traceback.format_exc())
+        return None
+
 def main():
     """
     Main Function
@@ -301,25 +429,14 @@ def main():
     logging.debug("Routers list is %s", nonTraversableRouters)
 
     # Get HC Url from config file
-    try:
-        web_config = list_comprehension_return_dict_if(config.items(), "web")["web"]
-        [[hcPort]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "bindPoints")
-        [[hcPath]] = nested_list_comprehension_return_list_if(web_config, "name", "health-check", "apis")
-        url = f'https://127.0.0.1:{hcPort["address"].split(":")[1]}/{hcPath["binding"]}'
-        ctrlAddr = config["ctrl"]["endpoint"].split(":")[1]
-    except (KeyError, ValueError):
-        logging.warning(traceback.format_exc(0))
-        logging.debug(traceback.format_exc())
+    if not (url := get_hc_url(config)):
         return 0
-    
-    # Resolve ctrl dns name if needed
-    try:
-        ctrlIp = [ctrlAddr] if is_ipv4(ctrlAddr) else [socket.gethostbyname(ctrlAddr)]   
-        logging.debug("ctrl address is %s", ctrlIp)
-    except (socket.gaierror, socket.herror, OSError):
-        logging.warning(traceback.format_exc(0))
-        logging.debug(traceback.format_exc())
+
+    # Collect all controller addresses (single, HA list, endpoints file) and resolve dns names if needed
+    if not (ctrlIps := resolve_ctrl_ips(get_ctrl_endpoints(config, routerConfigFilePath))):
+        logging.warning("No controller address could be found or resolved from the router config")
         return 0
+    logging.debug("ctrl addresses are %s", sorted(ctrlIps))
 
     # Get Healthcheck data
     try:
@@ -329,28 +446,31 @@ def main():
         logging.error(traceback.format_exc(0))
         logging.debug(traceback.format_exc())
         return 1
+
+    # An unexpected health check format means local health cannot be verified, so hand over to the peer
+    try:
+        return evaluate_health(hcData, nonTraversableRouters, ctrlIps,
+                               switchTimeout=switchTimeout, zitiBinaryFilePath=zitiBinaryFilePath)
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError):
+        logging.error("Unable to evaluate router health check data, the response format may have changed "
+                      "in this router version: %s", traceback.format_exc(0).strip())
+        logging.debug(traceback.format_exc())
+        return 1
+
+def evaluate_health(hcData, nonTraversableRouters, ctrlIps, **kwargs):
+    """Returns 0 or 1 by evaluating the controllerPing and link.health checks of the router health check data."""
+
     [controlPingData] = list_comprehension_return_list_if(hcData["checks"],"id","controllerPing")
     [linkHealthData] = list_comprehension_return_list_if(hcData["checks"],"id","link.health")
     logging.debug("HC = %s", hcData)
     logging.debug("Overall Ping is %s", hcData["healthy"])
 
-    # Evaluate all active links and remove links with no-traversal flag
-    newLinkDetails = []
-    newLinkHealthy = False
-
-    if linkHealthData.get("details"):
-        newLinkDetails = [
-            d for d in linkHealthData["details"]
-            if d["destRouterId"] not in nonTraversableRouters
-            if d["addresses"]["ack"]["remoteAddr"].split(":")[1] not in ctrlIp
-        ]
-        logging.debug("New link data after filtering %s", newLinkDetails)
-
-        if len(newLinkDetails) > 0:
-            newLinkHealthy = True
+    # Evaluate all active links and remove links with no-traversal flag or to a controller host
+    newLinkDetails = filter_links(linkHealthData.get("details") or [], nonTraversableRouters, ctrlIps)
+    logging.debug("New link data after filtering %s", newLinkDetails)
 
     # Evaluate the various conditions and execute the corresponding function
-    condition = (controlPingData["healthy"], newLinkHealthy)
+    condition = (controlPingData["healthy"], len(newLinkDetails) > 0)
     # Create a switch table mapping conditions to corresponding functions
     switch_table = {
         (True, True): case_0,
@@ -359,8 +479,6 @@ def main():
         (False, True): case_3
     }
     # Default to case 0
-    result = switch_table.get(condition, lambda: 0)(controlPingData=controlPingData, 
-                                                    linkHealthData=linkHealthData, 
-                                                    switchTimeout=switchTimeout,
-                                                    zitiBinaryFilePath=zitiBinaryFilePath)
-    return result
+    return switch_table.get(condition, lambda **_: 0)(controlPingData=controlPingData,
+                                                      linkHealthData=linkHealthData,
+                                                      **kwargs)

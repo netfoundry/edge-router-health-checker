@@ -51,6 +51,8 @@ The `controllerPing` is False and `link.health` is True. Return state is 1. In t
 
     [On-Prem HA](https://support.netfoundry.io/hc/en-us/articles/9962679994381-On-Prem-Ingress-High-Availability)
 
+1. With HA controllers, the router may list several controllers in `ctrl.endpoints` and keeps the list it learns at runtime in a controller endpoints file (`ctrl.endpointsFile`, default `endpoints.yml` next to the router config). Links to all of these controller hosts are ignored. The router writes this file with `0600` permissions, so when the router runs as root the script falls back to `sudo -n cat <file>`; the user running the script (e.g. `ziggy`) needs a passwordless sudo rule for that command. If the file cannot be read, a warning is logged and only the controllers in the router config are used.
+
 1. ### Cloud Network Load Balancer Use Case
 
     In public clouds, the network load balancers use http based health checks to detect issues with backend virtual machines /applications. Unfortunately, the decisions to mark particular backends unhealthy are based on the http return codes. Networking Applications like openziti router provide more information about its state or the overlay network data/control planes it is connected to. Although these state changes are not reported by the http error codes, the details are included in the body of the responses. Therefore, the health check algorithm needs ability to process the body of the responses to make more intelligent decisions.
