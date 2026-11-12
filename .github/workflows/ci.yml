@@ -35,7 +35,7 @@ jobs:
           
       - name: upload a built artifact for testing
         if: startsWith(github.ref, 'refs/heads/main') == false
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
