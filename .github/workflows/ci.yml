@@ -17,7 +17,6 @@ jobs:
       - name: install updates and python packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get upgrade -yqq
           sudo apt-get install -y python3-pip
           pip install pylint
 
@@ -35,7 +34,7 @@ jobs:
           
       - name: upload a built artifact for testing
         if: startsWith(github.ref, 'refs/heads/main') == false
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: erhchecker_${{matrix.goos}}_${{matrix.goarch}}
           path: erhchecker_${{matrix.goos}}_${{matrix.goarch}}.tar.gz
