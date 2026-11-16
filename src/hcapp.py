@@ -41,7 +41,7 @@ def get_arguments():
         A Namespace containing arguments
     """
 
-    __version__ = '1.2.0'
+    __version__ = '1.2.1'
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--routerConfigFilePath', type=str,
                         help='Specify the edge router config file')
@@ -419,7 +419,10 @@ def main():
     else:
         return 0
     nonTraversableRouters = []
-    if ids := parse_yaml_file(noTFlagRoutersFilePath, "router ids"):
+    if not noTFlagRoutersFilePath:
+        # Optional: most deployments have no links to non-traversable routers, so don't warn every run
+        logging.debug("No 'router ids' file given, no links are excluded by router id")
+    elif ids := parse_yaml_file(noTFlagRoutersFilePath, "router ids"):
         try:
             validate(instance=ids, schema=SCHEMA_ROUTERIDS)
             nonTraversableRouters = ids.get("routerIds")

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-16
+
+### Changed
+
+- When no 'router ids' file is given (`-r`/`NO_T_FLAG_ROUTERS_FILE_PATH` unset), this is now logged at DEBUG instead of WARNING. It is the normal setup when the routers have no links to non-traversable routers, and the warning was logged on every keepalived run (every 3s). A router ids file that is given but empty or invalid still logs a warning.
+
 ## [1.2.0] - 2026-11-12
 
 ### Fixed
